@@ -152,7 +152,7 @@ public class XmlSortTests
 
         // Act
         var program = new TestableProgram();
-        program.SortXmlNodesPublic(doc.Root);
+        program.SortXmlNodes(doc.Root);
 
         // Assert
         var elements = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
@@ -168,7 +168,7 @@ public class XmlSortTests
 
         // Act
         var program = new TestableProgram();
-        program.SortXmlNodesPublic(doc.Root);
+        program.SortXmlNodes(doc.Root);
 
         // Assert
         var attributes = doc.Root!.Attributes().Select(a => a.Name.LocalName).ToList();
@@ -193,7 +193,7 @@ public class XmlSortTests
 
         // Act
         var program = new TestableProgram();
-        program.SortXmlNodesPublic(doc.Root);
+        program.SortXmlNodes(doc.Root);
 
         // Assert
         var parentElements = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
@@ -223,7 +223,7 @@ public class XmlSortTests
 
             // Act
             var program = new TestableProgram();
-            var result = program.ProcessXmlFilePublic(testFile);
+            var result = program.ProcessXmlFile(testFile);
 
             // Assert
             Assert.True(result);
@@ -252,7 +252,7 @@ public class XmlSortTests
 
             // Act
             var program = new TestableProgram();
-            var result = program.ProcessXmlFilePublic(testFile);
+            var result = program.ProcessXmlFile(testFile);
 
             // Assert
             Assert.False(result);
@@ -282,7 +282,7 @@ public class XmlSortTests
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
-            var files = program.FindFilesPublic("*.xml", false);
+            var files = program.FindFiles("*.xml", false);
 
             // Assert
             Assert.Equal(2, files.Count);
@@ -312,7 +312,7 @@ public class XmlSortTests
             var program = new TestableProgram();
 
             // Act
-            var files = program.FindFilesPublic(Path.Combine(tempDir, "*.xml"), false);
+            var files = program.FindFiles(Path.Combine(tempDir, "*.xml"), false);
 
             // Assert
             Assert.Single(files);
@@ -346,7 +346,7 @@ public class XmlSortTests
             var program = new TestableProgram();
 
             // Act
-            var files = program.FindFilesPublic("subdir/*.xml", false);
+            var files = program.FindFiles("subdir/*.xml", false);
 
             // Assert
             Assert.Single(files);
@@ -370,7 +370,7 @@ public class XmlSortTests
         var nonExistentPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "*.xml");
 
         // Act
-        var files = program.FindFilesPublic(nonExistentPath, false);
+        var files = program.FindFiles(nonExistentPath, false);
 
         // Assert
         Assert.Empty(files);
@@ -389,7 +389,7 @@ public class XmlSortTests
             var program = new TestableProgram();
 
             // Act
-            var result = program.ProcessXmlFilePublic(testFile);
+            var result = program.ProcessXmlFile(testFile);
 
             // Assert
             Assert.False(result);
@@ -453,8 +453,8 @@ public class XmlSortTests
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
-            var filesNonRecursive = program.FindFilesPublic("*.xml", false);
-            var filesRecursive = program.FindFilesPublic("*.xml", true);
+            var filesNonRecursive = program.FindFiles("*.xml", false);
+            var filesRecursive = program.FindFiles("*.xml", true);
 
             // Assert
             Assert.Single(filesNonRecursive);
@@ -482,7 +482,7 @@ public class XmlSortTests
 
         // Act
         var program = new TestableProgram();
-        program.SortXmlNodesPublic(doc.Root);
+        program.SortXmlNodes(doc.Root);
 
         // Assert
         Assert.Equal("Some text content", doc.Root!.Element("element")!.Value);
@@ -503,7 +503,7 @@ public class XmlSortTests
 
         // Act
         var program = new TestableProgram();
-        program.SortXmlNodesPublic(doc.Root);
+        program.SortXmlNodes(doc.Root);
 
         // Assert
         var elements = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
@@ -519,27 +519,7 @@ public class XmlSortTests
     }
 }
 
-// Testable wrapper class that exposes internal methods for testing
+// Test wrapper class - methods are now internal and directly accessible via InternalsVisibleTo
 public class TestableProgram : Program
 {
-    public void SortXmlNodesPublic(XElement? element)
-    {
-        typeof(Program)
-            .GetMethod("SortXmlNodes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(this, new object?[] { element });
-    }
-
-    public bool ProcessXmlFilePublic(string filePath)
-    {
-        return (bool)typeof(Program)
-            .GetMethod("ProcessXmlFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(this, new object[] { filePath })!;
-    }
-
-    public List<string> FindFilesPublic(string pattern, bool recursive)
-    {
-        return (List<string>)typeof(Program)
-            .GetMethod("FindFiles", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(this, new object[] { pattern, recursive })!;
-    }
 }

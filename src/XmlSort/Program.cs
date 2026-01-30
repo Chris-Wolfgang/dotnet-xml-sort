@@ -57,7 +57,7 @@ public class Program
         }
     }
 
-    private List<string> FindFiles(string pattern, bool recursive)
+    internal List<string> FindFiles(string pattern, bool recursive)
     {
         var files = new List<string>();
         var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
@@ -89,7 +89,7 @@ public class Program
         return files;
     }
 
-    private bool ProcessXmlFile(string filePath)
+    internal bool ProcessXmlFile(string filePath)
     {
         Console.WriteLine($"\nProcessing: {filePath}");
         
@@ -127,7 +127,7 @@ public class Program
         }
     }
 
-    private void SortXmlNodes(XElement? element)
+    internal void SortXmlNodes(XElement? element)
     {
         if (element == null) return;
 
@@ -135,6 +135,8 @@ public class Program
         var textNodes = element.Nodes().OfType<XText>().ToList();
         
         // Sort child elements by name, then by attributes
+        // Note: Secondary sort by attributes ensures consistent ordering when multiple
+        // elements have the same name but different attribute values
         var sortedElements = element.Elements()
             .OrderBy(e => e.Name.LocalName)
             .ThenBy(e => string.Join(",", e.Attributes().Select(a => $"{a.Name}={a.Value}")))
