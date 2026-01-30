@@ -10,7 +10,7 @@ A cross-platform .NET console application that sorts XML files alphabetically by
 - 🔄 **Recursive sorting** - Sorts all nested elements and attributes
 - 💾 **In-place updates** - Writes sorted XML back to original files
 - 📝 **Content preservation** - Maintains text content and structure
-- 🎯 **Multi-framework support** - Targets .NET 5.0-10.0 and .NET Framework 4.6.2-4.8.1
+- 🎯 **Multi-framework support** - Targets .NET 5.0-9.0 and .NET Framework 4.6.2-4.8.1
 
 ## Installation
 

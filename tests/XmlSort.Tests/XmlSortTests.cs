@@ -41,6 +41,7 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
             var subDir = Path.Combine(tempDir, "sub");
@@ -52,7 +53,6 @@ public class XmlSortTests
             File.WriteAllText(testFile1, "<root><z /><a /></root>");
             File.WriteAllText(testFile2, "<root><z /><a /></root>");
 
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
@@ -67,11 +67,10 @@ public class XmlSortTests
             
             Assert.Equal("a", doc1.Root!.Elements().First().Name.LocalName);
             Assert.Equal("a", doc2.Root!.Elements().First().Name.LocalName);
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
@@ -84,9 +83,9 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
@@ -94,11 +93,10 @@ public class XmlSortTests
 
             // Assert
             Assert.Equal(0, result);
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
@@ -111,6 +109,7 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
             var subDir = Path.Combine(tempDir, "sub");
@@ -119,7 +118,6 @@ public class XmlSortTests
             var testFile = Path.Combine(subDir, "test.xml");
             File.WriteAllText(testFile, "<root><z /><a /></root>");
 
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
@@ -127,11 +125,10 @@ public class XmlSortTests
 
             // Assert
             Assert.Equal(0, result);
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
@@ -271,6 +268,7 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "test1.xml"), "<root />");
@@ -278,7 +276,6 @@ public class XmlSortTests
             File.WriteAllText(Path.Combine(tempDir, "test.txt"), "text");
 
             var program = new TestableProgram();
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
@@ -287,11 +284,10 @@ public class XmlSortTests
             // Assert
             Assert.Equal(2, files.Count);
             Assert.All(files, f => Assert.EndsWith(".xml", f));
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
@@ -332,6 +328,7 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
             var subDir = Path.Combine(tempDir, "subdir");
@@ -340,7 +337,6 @@ public class XmlSortTests
             var testFile = Path.Combine(subDir, "test.xml");
             File.WriteAllText(testFile, "<root />");
 
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             var program = new TestableProgram();
@@ -350,11 +346,10 @@ public class XmlSortTests
 
             // Assert
             Assert.Single(files);
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
@@ -440,6 +435,7 @@ public class XmlSortTests
     {
         // Arrange
         var tempDir = CreateTempDirectory();
+        var originalDir = Directory.GetCurrentDirectory();
         try
         {
             var subDir = Path.Combine(tempDir, "subdir");
@@ -449,7 +445,6 @@ public class XmlSortTests
             File.WriteAllText(Path.Combine(subDir, "test2.xml"), "<root />");
 
             var program = new TestableProgram();
-            var originalDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
@@ -459,11 +454,10 @@ public class XmlSortTests
             // Assert
             Assert.Single(filesNonRecursive);
             Assert.Equal(2, filesRecursive.Count);
-
-            Directory.SetCurrentDirectory(originalDir);
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDir);
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);

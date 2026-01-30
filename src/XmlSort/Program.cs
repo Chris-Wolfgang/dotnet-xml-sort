@@ -70,6 +70,10 @@ public class Program
         {
             directory = Path.GetDirectoryName(pattern) ?? directory;
             searchPattern = Path.GetFileName(pattern);
+            if (string.IsNullOrEmpty(searchPattern))
+            {
+                return files;
+            }
         }
         else if (pattern.Contains(Path.DirectorySeparatorChar) || pattern.Contains(Path.AltDirectorySeparatorChar))
         {
@@ -78,6 +82,10 @@ public class Program
             {
                 directory = Path.Combine(directory, dirPart);
                 searchPattern = Path.GetFileName(pattern);
+                if (string.IsNullOrEmpty(searchPattern))
+                {
+                    return files;
+                }
             }
         }
 
