@@ -5,7 +5,7 @@ using McMaster.Extensions.CommandLineUtils;
 
 namespace XmlSort;
 
-[Command(Name = "xmlsort", Description = "Sorts XML nodes in files recursively")]
+[Command(Name = "sort-xml", Description = "Sorts XML nodes in files recursively")]
 public class Program
 {
     [Argument(0, Description = "File name or filter (e.g., *.csproj)")]
@@ -15,6 +15,18 @@ public class Program
     [Option("-r|--recursive", Description = "Search subfolders recursively")]
     public bool Recursive { get; set; }
 
+    [Option("--no-backup", Description = "Do not create a backup before overwriting")]
+    public bool NoBackup { get; set; }
+
+    [Option("-cs|--case-sensitive", Description = "Sort using current culture in a case-sensitive way (default is case-insensitive)")]
+    public bool CaseSensitive { get; set; }
+
+    [Option("-sa|--sort-attributes", Description = "Also sort each element's attributes (default preserves attribute order)")]
+    public bool SortAttributes { get; set; }
+
+    [Option("--remove-dupes", Description = "Remove duplicate sibling elements with the same name and attributes (except PropertyGroup and ItemGroup)")]
+    public bool RemoveDupes { get; set; }
+
     public static int Main(string[] args) => CommandLineApplication.Execute<Program>(args);
 
     private void OnExecute()
@@ -22,7 +34,7 @@ public class Program
         try
         {
             var files = FindFiles(FilePattern, Recursive);
-            
+
             if (!files.Any())
             {
                 Console.WriteLine($"No files found matching pattern: {FilePattern}");
@@ -30,7 +42,7 @@ public class Program
             }
 
             Console.WriteLine($"Found {files.Count} file(s) matching pattern '{FilePattern}'");
-            
+
             int processedCount = 0;
             int skippedCount = 0;
 
@@ -61,11 +73,11 @@ public class Program
     {
         var files = new List<string>();
         var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-        
+
         // Determine if the pattern is a specific file or a wildcard pattern
         string directory = Directory.GetCurrentDirectory();
         string searchPattern = pattern;
-        
+
         if (Path.IsPathRooted(pattern))
         {
             directory = Path.GetDirectoryName(pattern) ?? directory;
@@ -97,18 +109,81 @@ public class Program
         return files;
     }
 
+    /// <summary>
+    /// Efficiently determines if a file is XML by reading only minimal content.
+    /// Never loads the entire file before checking.
+    /// </summary>
+    internal bool IsXmlFile(string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 512);
+            var settings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Ignore,
+                XmlResolver = null
+            };
+            using var reader = XmlReader.Create(stream, settings);
+            reader.MoveToContent();
+            return reader.NodeType == XmlNodeType.Element;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Creates a backup of the file before overwriting.
+    /// Uses filename-backup.ext, then filename-backup2.ext, etc.
+    /// Returns the backup path, or null if NoBackup is set.
+    /// </summary>
+    internal string? CreateBackup(string filePath)
+    {
+        if (NoBackup) return null;
+
+        var dir = Path.GetDirectoryName(filePath) ?? ".";
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+        var ext = Path.GetExtension(filePath);
+
+        var backupPath = Path.Combine(dir, $"{nameWithoutExt}-backup{ext}");
+        int counter = 2;
+        while (File.Exists(backupPath))
+        {
+            backupPath = Path.Combine(dir, $"{nameWithoutExt}-backup{counter}{ext}");
+            counter++;
+        }
+
+        File.Copy(filePath, backupPath);
+        return backupPath;
+    }
+
     internal bool ProcessXmlFile(string filePath)
     {
         Console.WriteLine($"\nProcessing: {filePath}");
-        
+
+        if (!IsXmlFile(filePath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Error.WriteLine($"  ✗ Not valid XML, skipping: {filePath}");
+            Console.ResetColor();
+            return false;
+        }
+
         try
         {
-            // Try to load as XML
-            var doc = XDocument.Load(filePath);
-            
+            var doc = XDocument.Load(filePath, LoadOptions.SetLineInfo);
+
             // Sort the XML recursively
             SortXmlNodes(doc.Root);
-            
+
+            // Create backup before overwriting
+            var backupPath = CreateBackup(filePath);
+            if (backupPath != null)
+            {
+                Console.WriteLine($"  → Backup created: {backupPath}");
+            }
+
             // Write the sorted XML back to the file
             var settings = new XmlWriterSettings
             {
@@ -119,18 +194,20 @@ public class Program
 
             using var writer = XmlWriter.Create(filePath, settings);
             doc.Save(writer);
-            
+
             Console.WriteLine($"  ✓ Sorted and saved");
             return true;
         }
-        catch (XmlException)
+        catch (XmlException ex)
         {
-            Console.WriteLine($"  ⊗ Skipped (not valid XML)");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Error.WriteLine($"  ✗ Malformed XML, skipping: {ex.Message}");
+            Console.ResetColor();
             return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"  ✗ Error: {ex.Message}");
+            Console.Error.WriteLine($"  ✗ Error: {ex.Message}");
             return false;
         }
     }
@@ -139,43 +216,109 @@ public class Program
     {
         if (element == null) return;
 
+        var comparison = CaseSensitive
+            ? StringComparison.CurrentCulture
+            : StringComparison.CurrentCultureIgnoreCase;
+        var comparer = GetComparer(comparison);
+
         // Get and preserve text content
         var textNodes = element.Nodes().OfType<XText>().ToList();
-        
-        // Sort child elements by name, then by attributes
-        // Note: Secondary sort by attributes ensures consistent ordering when multiple
-        // elements have the same name but different attribute values
-        var sortedElements = element.Elements()
-            .OrderBy(e => e.Name.LocalName)
-            .ThenBy(e => string.Join(",", e.Attributes().Select(a => $"{a.Name}={a.Value}")))
+
+        // Snapshot child elements (may be reduced if duplicates are removed)
+        var childElements = element.Elements().ToList();
+
+        // Detect and handle duplicate sibling elements
+        DetectAndHandleDuplicates(element, comparison, childElements);
+
+        // Sort child elements by name, then by attribute set for stable tie-breaking
+        var sortedElements = childElements
+            .OrderBy(e => e.Name.LocalName, comparer)
+            .ThenBy(e => string.Join(",", e.Attributes().Select(a => $"{a.Name}={a.Value}")), comparer)
             .ToList();
 
-        // Sort attributes on the current element
-        var sortedAttributes = element.Attributes()
-            .OrderBy(a => a.Name.LocalName)
-            .ToList();
-
-        // Remove all elements and attributes
+        // Remove all child nodes (text and elements) from the element
         element.RemoveNodes();
-        element.RemoveAttributes();
 
-        // Add sorted attributes back
-        foreach (var attr in sortedAttributes)
+        if (SortAttributes)
         {
-            element.Add(new XAttribute(attr.Name, attr.Value));
+            // Sort attributes and restore them
+            var sortedAttributes = element.Attributes()
+                .OrderBy(a => a.Name.LocalName, comparer)
+                .ToList();
+            element.RemoveAttributes();
+            foreach (var attr in sortedAttributes)
+            {
+                element.Add(new XAttribute(attr.Name, attr.Value));
+            }
         }
 
-        // Add text nodes back first (to preserve original position)
+        // Restore text nodes
         foreach (var textNode in textNodes)
         {
             element.Add(new XText(textNode.Value));
         }
 
-        // Recursively sort and add elements back
+        // Recursively sort and add child elements back
         foreach (var child in sortedElements)
         {
             SortXmlNodes(child);
             element.Add(child);
         }
     }
+
+    /// <summary>
+    /// Detects duplicate sibling elements (same name and attributes) under <paramref name="parent"/>.
+    /// Emits a yellow warning for each duplicate group. If RemoveDupes is set, removes all but the
+    /// first occurrence, unless the element name is PropertyGroup or ItemGroup.
+    /// </summary>
+    internal void DetectAndHandleDuplicates(XElement parent, StringComparison comparison, List<XElement> elements)
+    {
+        var comparer = GetComparer(comparison);
+        var groups = elements.GroupBy(e => GetElementKey(e, comparison), comparer);
+
+        foreach (var group in groups)
+        {
+            if (group.Count() <= 1) continue;
+
+            var first = group.First();
+            var lineInfo = first as IXmlLineInfo;
+            var location = lineInfo?.HasLineInfo() == true
+                ? $" (line {lineInfo.LineNumber}, col {lineInfo.LinePosition})"
+                : string.Empty;
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"  ⚠ Duplicate nodes found{location}: <{first.Name.LocalName}> ({group.Count()} occurrences) in <{parent.Name.LocalName}>");
+            Console.ResetColor();
+
+            if (RemoveDupes)
+            {
+                var protectedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "PropertyGroup", "ItemGroup" };
+                if (!protectedNames.Contains(first.Name.LocalName))
+                {
+                    foreach (var dupe in group.Skip(1).ToList())
+                    {
+                        elements.Remove(dupe);
+                    }
+                }
+            }
+        }
+    }
+
+    private static string GetElementKey(XElement element, StringComparison comparison)
+    {
+        var comparer = GetComparer(comparison);
+
+        var name = element.Name.LocalName;
+        var attrs = string.Join(",", element.Attributes()
+            .OrderBy(a => a.Name.LocalName, comparer)
+            .Select(a => $"{a.Name.LocalName}={a.Value}"));
+
+        return $"{name}|{attrs}";
+    }
+
+    private static StringComparer GetComparer(StringComparison comparison) =>
+        comparison == StringComparison.CurrentCultureIgnoreCase
+            ? StringComparer.CurrentCultureIgnoreCase
+            : StringComparer.CurrentCulture;
 }
+
