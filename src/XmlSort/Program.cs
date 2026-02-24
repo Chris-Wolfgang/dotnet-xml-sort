@@ -110,20 +110,35 @@ public class Program
     }
 
     /// <summary>
-    /// Efficiently determines if a file is XML by reading only minimal content.
-    /// Never loads the entire file before checking.
+    /// Efficiently determines if a file is XML by reading at most 512 bytes.
+    /// The fixed-size prefix is copied into a MemoryStream so the XmlReader
+    /// can never read beyond that hard cap, regardless of BOM/whitespace/DTD.
     /// </summary>
     internal bool IsXmlFile(string filePath)
     {
         try
         {
-            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 512);
+            // Read only a fixed-size prefix from the file to enforce a hard cap on bytes read.
+            byte[] buffer = new byte[512];
+            int bytesRead;
+
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 512))
+            {
+                bytesRead = stream.Read(buffer, 0, buffer.Length);
+            }
+
+            if (bytesRead == 0)
+            {
+                return false;
+            }
+
+            using var memoryStream = new MemoryStream(buffer, 0, bytesRead, writable: false);
             var settings = new XmlReaderSettings
             {
                 DtdProcessing = DtdProcessing.Ignore,
                 XmlResolver = null
             };
-            using var reader = XmlReader.Create(stream, settings);
+            using var reader = XmlReader.Create(memoryStream, settings);
             reader.MoveToContent();
             return reader.NodeType == XmlNodeType.Element;
         }
@@ -278,7 +293,8 @@ public class Program
 
         foreach (var group in groups)
         {
-            if (group.Count() <= 1) continue;
+            var count = group.Count();
+            if (count <= 1) continue;
 
             var first = group.First();
             var lineInfo = first as IXmlLineInfo;
@@ -287,7 +303,7 @@ public class Program
                 : string.Empty;
 
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"  ⚠ Duplicate nodes found{location}: <{first.Name.LocalName}> ({group.Count()} occurrences) in <{parent.Name.LocalName}>");
+            Console.WriteLine($"  ⚠ Duplicate nodes found{location}: <{first.Name.LocalName}> ({count} occurrences) in <{parent.Name.LocalName}>");
             Console.ResetColor();
 
             if (RemoveDupes)
@@ -308,12 +324,15 @@ public class Program
     {
         var comparer = GetComparer(comparison);
 
+        // Use \x00 (between attrs) and \x01 (between name and value) as separators.
+        // These characters are invalid in XML 1.0 names and values, so they cannot
+        // appear in real attribute names or values, making the key collision-free.
         var name = element.Name.LocalName;
-        var attrs = string.Join(",", element.Attributes()
+        var attrs = string.Join("\x00", element.Attributes()
             .OrderBy(a => a.Name.LocalName, comparer)
-            .Select(a => $"{a.Name.LocalName}={a.Value}"));
+            .Select(a => $"{a.Name.LocalName}\x01{a.Value}"));
 
-        return $"{name}|{attrs}";
+        return $"{name}\x00{attrs}";
     }
 
     private static StringComparer GetComparer(StringComparison comparison) =>

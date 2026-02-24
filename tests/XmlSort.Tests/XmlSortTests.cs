@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Threading;
 using System.Xml.Linq;
 
 namespace XmlSort.Tests;
@@ -789,21 +791,30 @@ public class XmlSortTests
     [Fact]
     public void SortXmlNodes_WithCaseSensitive_SortsUppercaseFirst()
     {
-        // With CaseSensitive=true the sort uses StringComparison.CurrentCulture,
-        // which is a culture-aware, case-sensitive comparison.
-        // In most cultures, 'A' collates before 'b', so "Alpha" should appear before "beta".
-        var xml = @"<root><beta /><Alpha /><zebra /></root>";
-        var doc = XDocument.Parse(xml);
+        // With CaseSensitive=true the sort uses StringComparison.CurrentCulture.
+        // Pin to en-US so the assertion is not culture-dependent.
+        var savedCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
 
-        var program = new TestableProgram { CaseSensitive = true };
-        program.SortXmlNodes(doc.Root);
+            var xml = @"<root><beta /><Alpha /><zebra /></root>";
+            var doc = XDocument.Parse(xml);
 
-        // Verify sorted order is applied and "Alpha" appears before "beta"
-        var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
-        Assert.Equal(3, names.Count);
-        var alphaIndex = names.IndexOf("Alpha");
-        var betaIndex = names.IndexOf("beta");
-        Assert.True(alphaIndex < betaIndex);
+            var program = new TestableProgram { CaseSensitive = true };
+            program.SortXmlNodes(doc.Root);
+
+            // In en-US with case-sensitive sort, 'A' collates before 'b' and 'z'
+            var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+            Assert.Equal(3, names.Count);
+            var alphaIndex = names.IndexOf("Alpha");
+            var betaIndex = names.IndexOf("beta");
+            Assert.True(alphaIndex < betaIndex);
+        }
+        finally
+        {
+            Thread.CurrentThread.CurrentCulture = savedCulture;
+        }
     }
 
     // -------------------------------------------------------------------------

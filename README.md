@@ -1,18 +1,26 @@
 # XML Sort
 
-A cross-platform .NET console application that sorts XML files alphabetically by element and attribute names.
+A cross-platform .NET CLI tool that sorts XML files alphabetically by element and attribute names. Install it globally and invoke it as `dotnet sort-xml`.
 
 ## Features
 
 - 🔍 **Pattern-based file matching** - Use wildcards like `*.csproj` or `*.xml`
 - 📁 **Recursive directory search** - Optional `-r` or `--recursive` flag
-- ✅ **XML validation** - Automatically skips non-XML files
-- 🔄 **Recursive sorting** - Sorts all nested elements and attributes
-- 💾 **In-place updates** - Writes sorted XML back to original files
-- 📝 **Content preservation** - Maintains text content and structure
+- ✅ **XML sniffing** - Reads only the first 512 bytes to detect XML; non-XML files are skipped with a clear error
+- 🔄 **Recursive sorting** - Sorts all nested elements at every level
+- 💾 **Safe backups** - Creates `filename-backup.ext` (or `-backup2`, `-backup3` …) before overwriting
+- 🔠 **Configurable case sensitivity** - Defaults to current-culture, case-insensitive; opt in with `-cs`
+- 🏷️ **Optional attribute sorting** - Preserves attribute order by default; sort with `-sa`
+- ⚠️ **Duplicate detection** - Warns in yellow on duplicate sibling nodes; optionally removes them with `--remove-dupes`
 - 🎯 **Multi-framework support** - Targets .NET 5.0-10.0 and .NET Framework 4.6.2-4.8.1
 
 ## Installation
+
+### As a .NET Global Tool
+
+```bash
+dotnet tool install --global dotnet-sort-xml
+```
 
 ### From Source
 
@@ -29,7 +37,7 @@ dotnet build -c Release
 Sort all `.csproj` files in the current directory:
 
 ```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "*.csproj"
+dotnet sort-xml "*.csproj"
 ```
 
 ### Recursive Search
@@ -37,26 +45,66 @@ dotnet run --project src/XmlSort/XmlSort.csproj -- "*.csproj"
 Sort all XML files in the current directory and all subdirectories:
 
 ```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "*.xml" --recursive
+dotnet sort-xml "*.xml" --recursive
 ```
 
 or using the short form:
 
 ```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "*.xml" -r
+dotnet sort-xml "*.xml" -r
+```
+
+### Skip Backup Creation
+
+Process files without creating backups:
+
+```bash
+dotnet sort-xml "*.xml" --no-backup
+```
+
+### Case-Sensitive Sorting
+
+Sort using current culture in a case-sensitive way (default is case-insensitive):
+
+```bash
+dotnet sort-xml "*.xml" --case-sensitive
+# or
+dotnet sort-xml "*.xml" -cs
+```
+
+### Sort Attributes
+
+Also sort each element's attributes (default preserves attribute order):
+
+```bash
+dotnet sort-xml "*.xml" --sort-attributes
+# or
+dotnet sort-xml "*.xml" -sa
+```
+
+### Duplicate Removal
+
+Remove duplicate sibling elements with the same name and attributes (except `PropertyGroup` and `ItemGroup`, which are never removed):
+
+```bash
+dotnet sort-xml "*.xml" --remove-dupes
 ```
 
 ### Command-Line Options
 
 ```
-Usage: xmlsort [options] <FilePattern>
+Usage: dotnet sort-xml [options] <FilePattern>
 
 Arguments:
-  FilePattern            File name or filter (e.g., *.csproj)
+  FilePattern             File name or filter (e.g., *.csproj)
 
 Options:
-  -r|--recursive         Search subfolders recursively
-  -?|-h|--help          Show help information
+  -r|--recursive          Search subfolders recursively
+  --no-backup             Do not create a backup before overwriting
+  -cs|--case-sensitive    Sort using current culture case-sensitively (default: case-insensitive)
+  -sa|--sort-attributes   Also sort each element's attributes (default: preserve order)
+  --remove-dupes          Remove duplicate sibling elements (except PropertyGroup and ItemGroup)
+  -?|-h|--help            Show help information
 ```
 
 ## Examples
@@ -64,19 +112,13 @@ Options:
 ### Sort a Single File
 
 ```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "MyProject.csproj"
+dotnet sort-xml "MyProject.csproj"
 ```
 
-### Sort All XML Files
+### Sort All XML Files Recursively With All Options
 
 ```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "*.xml"
-```
-
-### Sort All Config Files Recursively
-
-```bash
-dotnet run --project src/XmlSort/XmlSort.csproj -- "*.config" -r
+dotnet sort-xml "*.xml" -r -cs -sa --remove-dupes --no-backup
 ```
 
 ## How It Works
@@ -84,19 +126,34 @@ dotnet run --project src/XmlSort/XmlSort.csproj -- "*.config" -r
 The application:
 
 1. **Finds files** matching the specified pattern (optionally searching subdirectories)
-2. **Validates** that each file contains valid XML
-3. **Sorts** all XML elements alphabetically by name
-4. **Sorts** all XML attributes alphabetically by name
-5. **Preserves** text content within elements
-6. **Writes** the sorted XML back to the original file
+2. **Sniffs** the first 512 bytes of each file to efficiently detect XML — skips non-XML files with a red error
+3. **Loads** the XML document with line-info preserved for useful duplicate warnings
+4. **Sorts** all XML elements alphabetically by name (case-insensitive by default)
+5. **Optionally sorts** all XML attributes alphabetically by name (`-sa`)
+6. **Detects duplicates** and warns in yellow; optionally removes them (`--remove-dupes`)
+7. **Creates a backup** of the original file before overwriting (unless `--no-backup`)
+8. **Writes** the sorted XML back to the original file
 
 ### Sorting Behavior
 
-- **Elements** are sorted alphabetically by their local name
-- **Attributes** are sorted alphabetically by their local name
+- **Elements** are sorted alphabetically by their local name (case-insensitive by default; use `-cs` for case-sensitive)
+- **Attributes** preserve their original order by default (use `-sa` to sort them too)
 - **Text content** is preserved in its original position
 - **Nested elements** are sorted recursively at all levels
-- Elements with the same name are further sorted by their attributes for consistency
+- Elements with the same name are further sorted by their attribute set for stable ordering
+
+### Backup Behavior
+
+Before overwriting a file, a backup is created:
+
+| Backup file | When created |
+|-------------|-------------|
+| `file-backup.xml` | First run |
+| `file-backup2.xml` | If `file-backup.xml` already exists |
+| `file-backup3.xml` | If both above exist |
+| … | Continues incrementing |
+
+Use `--no-backup` to skip backup creation entirely.
 
 ### Example Transformation
 
