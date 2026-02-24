@@ -866,7 +866,9 @@ public class XmlSortTests
     [Fact]
     public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesPropertyGroup()
     {
-        var xml = @"<Project><PropertyGroup><Foo /></PropertyGroup><PropertyGroup><Bar /></PropertyGroup></Project>";
+        // Use identical subtrees so the new subtree-equality check flags them as duplicates,
+        // then verify the protected-names guard prevents removal.
+        var xml = @"<Project><PropertyGroup><Foo /></PropertyGroup><PropertyGroup><Foo /></PropertyGroup></Project>";
         var doc = XDocument.Parse(xml);
         var elements = doc.Root!.Elements().ToList();
 
@@ -880,7 +882,9 @@ public class XmlSortTests
     [Fact]
     public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesItemGroup()
     {
-        var xml = @"<Project><ItemGroup><Foo /></ItemGroup><ItemGroup><Bar /></ItemGroup></Project>";
+        // Use identical subtrees so the new subtree-equality check flags them as duplicates,
+        // then verify the protected-names guard prevents removal.
+        var xml = @"<Project><ItemGroup><Foo /></ItemGroup><ItemGroup><Foo /></ItemGroup></Project>";
         var doc = XDocument.Parse(xml);
         var elements = doc.Root!.Elements().ToList();
 
@@ -942,6 +946,94 @@ public class XmlSortTests
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesPropertyGroupWithAttributes()
+    {
+        // PropertyGroup elements with identical subtrees AND attributes must still be protected
+        var xml = @"<Project><PropertyGroup Condition="" '$(Config)'=='Release' ""><Foo /></PropertyGroup><PropertyGroup Condition="" '$(Config)'=='Release' ""><Foo /></PropertyGroup></Project>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(2, elements.Count(e => e.Name.LocalName == "PropertyGroup"));
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesItemGroupWithAttributes()
+    {
+        // ItemGroup elements with identical subtrees AND attributes must still be protected
+        var xml = @"<Project><ItemGroup Condition=""x""><Foo /></ItemGroup><ItemGroup Condition=""x""><Foo /></ItemGroup></Project>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(2, elements.Count(e => e.Name.LocalName == "ItemGroup"));
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_SameNameDifferentDescendants_NotDuplicates()
+    {
+        // Same element name and same direct attributes, but different child elements → NOT duplicates
+        var xml = @"<root><a><child1 /></a><a><child2 /></a></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        // Both <a> elements must be kept because their subtrees differ
+        Assert.Equal(2, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_IdenticalSubtrees_DetectedAsDuplicates()
+    {
+        // Two elements with identical subtrees (same name, attrs, and all descendants) are duplicates
+        var xml = @"<root>
+    <item id=""1""><sub val=""x"">text</sub></item>
+    <item id=""1""><sub val=""x"">text</sub></item>
+</root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(1, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_SameNameSameAttrsDifferentDescendantAttrValues_NotDuplicates()
+    {
+        // Descendant attribute values differ → NOT duplicates
+        var xml = @"<root><a><b val=""1"" /></a><a><b val=""2"" /></a></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(2, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_SameNameSameAttrsDifferentTextContent_NotDuplicates()
+    {
+        // Same element name and attrs but different text content → NOT duplicates
+        var xml = @"<root><a>hello</a><a>world</a></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(2, elements.Count);
     }
 }
 
