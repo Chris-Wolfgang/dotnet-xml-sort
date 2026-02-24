@@ -22,7 +22,7 @@ public class XmlSortTests
             File.WriteAllText(testFile, "<root><z /><a /></root>");
 
             // Act
-            var result = Program.Main(new[] { Path.Combine(tempDir, "*.xml") });
+            var result = Program.Main(new[] { Path.Combine(tempDir, "*.xml"), "--no-backup" });
 
             // Assert
             Assert.Equal(0, result);
@@ -56,7 +56,7 @@ public class XmlSortTests
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
-            var result = Program.Main(new[] { "*.xml", "-r" });
+            var result = Program.Main(new[] { "*.xml", "-r", "--no-backup" });
 
             // Assert
             Assert.Equal(0, result);
@@ -121,7 +121,7 @@ public class XmlSortTests
             Directory.SetCurrentDirectory(tempDir);
 
             // Act
-            var result = Program.Main(new[] { "*.xml", "--recursive" });
+            var result = Program.Main(new[] { "*.xml", "--recursive", "--no-backup" });
 
             // Assert
             Assert.Equal(0, result);
@@ -157,19 +157,35 @@ public class XmlSortTests
     }
 
     [Fact]
-    public void SortXmlNodes_SortsAttributesByName()
+    public void SortXmlNodes_SortsAttributesByName_WhenSortAttributesEnabled()
     {
         // Arrange
         var xml = @"<root zebra=""z"" alpha=""a"" beta=""b"" />";
         var doc = XDocument.Parse(xml);
 
-        // Act
-        var program = new TestableProgram();
+        // Act – attribute sorting requires the --sort-attributes option
+        var program = new TestableProgram { SortAttributes = true };
         program.SortXmlNodes(doc.Root);
 
         // Assert
         var attributes = doc.Root!.Attributes().Select(a => a.Name.LocalName).ToList();
         Assert.Equal(new[] { "alpha", "beta", "zebra" }, attributes);
+    }
+
+    [Fact]
+    public void SortXmlNodes_PreservesAttributeOrder_ByDefault()
+    {
+        // Arrange – attributes are in reverse order
+        var xml = @"<root zebra=""z"" alpha=""a"" beta=""b"" />";
+        var doc = XDocument.Parse(xml);
+
+        // Act – default behavior: no attribute sorting
+        var program = new TestableProgram();
+        program.SortXmlNodes(doc.Root);
+
+        // Assert – original attribute order is preserved
+        var attributes = doc.Root!.Attributes().Select(a => a.Name.LocalName).ToList();
+        Assert.Equal(new[] { "zebra", "alpha", "beta" }, attributes);
     }
 
     [Fact]
@@ -219,7 +235,7 @@ public class XmlSortTests
             File.WriteAllText(testFile, xml);
 
             // Act
-            var program = new TestableProgram();
+            var program = new TestableProgram { NoBackup = true };
             var result = program.ProcessXmlFile(testFile);
 
             // Assert
@@ -412,7 +428,7 @@ public class XmlSortTests
             File.WriteAllText(invalidFile, "Not XML content");
 
             // Act
-            var result = Program.Main(new[] { Path.Combine(tempDir, "*.xml") });
+            var result = Program.Main(new[] { Path.Combine(tempDir, "*.xml"), "--no-backup" });
 
             // Assert
             Assert.Equal(0, result);
@@ -495,8 +511,8 @@ public class XmlSortTests
 </root>";
         var doc = XDocument.Parse(xml);
 
-        // Act
-        var program = new TestableProgram();
+        // Act – with --sort-attributes to also sort attribute order
+        var program = new TestableProgram { SortAttributes = true };
         program.SortXmlNodes(doc.Root);
 
         // Assert
@@ -510,6 +526,411 @@ public class XmlSortTests
         Assert.Equal(new[] { "nested1", "nested2" }, zebraChildren);
 
         Assert.Equal("Text", doc.Root.Element("alpha")!.Value);
+    }
+
+    // -------------------------------------------------------------------------
+    // IsXmlFile tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void IsXmlFile_WithValidXml_ReturnsTrue()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root><child /></root>");
+
+            var program = new TestableProgram();
+            Assert.True(program.IsXmlFile(testFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsXmlFile_WithXmlDeclaration_ReturnsTrue()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<?xml version=\"1.0\" encoding=\"utf-8\"?><root />");
+
+            var program = new TestableProgram();
+            Assert.True(program.IsXmlFile(testFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsXmlFile_WithPlainText_ReturnsFalse()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.txt");
+            File.WriteAllText(testFile, "This is not XML at all.");
+
+            var program = new TestableProgram();
+            Assert.False(program.IsXmlFile(testFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsXmlFile_WithEmptyFile_ReturnsFalse()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "empty.xml");
+            File.WriteAllText(testFile, string.Empty);
+
+            var program = new TestableProgram();
+            Assert.False(program.IsXmlFile(testFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CreateBackup tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void CreateBackup_CreatesBackupWithExpectedName()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root />");
+
+            var program = new TestableProgram { NoBackup = false };
+            var backupPath = program.CreateBackup(testFile);
+
+            Assert.NotNull(backupPath);
+            Assert.Equal(Path.Combine(tempDir, "test-backup.xml"), backupPath);
+            Assert.True(File.Exists(backupPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_WithExistingBackup_CreatesNumberedBackup()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root />");
+
+            // Pre-create first backup
+            File.WriteAllText(Path.Combine(tempDir, "test-backup.xml"), "<root />");
+
+            var program = new TestableProgram { NoBackup = false };
+            var backupPath = program.CreateBackup(testFile);
+
+            Assert.NotNull(backupPath);
+            Assert.Equal(Path.Combine(tempDir, "test-backup2.xml"), backupPath);
+            Assert.True(File.Exists(backupPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_WithMultipleExistingBackups_UsesNextAvailableNumber()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root />");
+            File.WriteAllText(Path.Combine(tempDir, "test-backup.xml"), "<root />");
+            File.WriteAllText(Path.Combine(tempDir, "test-backup2.xml"), "<root />");
+            File.WriteAllText(Path.Combine(tempDir, "test-backup3.xml"), "<root />");
+
+            var program = new TestableProgram { NoBackup = false };
+            var backupPath = program.CreateBackup(testFile);
+
+            Assert.NotNull(backupPath);
+            Assert.Equal(Path.Combine(tempDir, "test-backup4.xml"), backupPath);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_WithNoBackupOption_ReturnsNull()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root />");
+
+            var program = new TestableProgram { NoBackup = true };
+            var backupPath = program.CreateBackup(testFile);
+
+            Assert.Null(backupPath);
+            Assert.False(File.Exists(Path.Combine(tempDir, "test-backup.xml")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_FileWithoutExtension_CreatesCorrectBackupName()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "Makefile");
+            File.WriteAllText(testFile, "<root />");
+
+            var program = new TestableProgram { NoBackup = false };
+            var backupPath = program.CreateBackup(testFile);
+
+            Assert.NotNull(backupPath);
+            Assert.Equal(Path.Combine(tempDir, "Makefile-backup"), backupPath);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ProcessXmlFile backup behavior tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void ProcessXmlFile_CreatesBackupByDefault()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root><z /><a /></root>");
+
+            var program = new TestableProgram();  // NoBackup = false by default
+            program.ProcessXmlFile(testFile);
+
+            Assert.True(File.Exists(Path.Combine(tempDir, "test-backup.xml")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ProcessXmlFile_WithNoBackup_DoesNotCreateBackup()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root><z /><a /></root>");
+
+            var program = new TestableProgram { NoBackup = true };
+            program.ProcessXmlFile(testFile);
+
+            Assert.False(File.Exists(Path.Combine(tempDir, "test-backup.xml")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Sorting option tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void SortXmlNodes_DefaultIsCaseInsensitive()
+    {
+        // Arrange – with case-insensitive sorting, "Beta" and "beta" are treated as equal
+        // and sorted relative to "alpha" and "Zebra" without regard to letter casing.
+        var xml = @"<root><Zebra /><alpha /><Beta /></root>";
+        var doc = XDocument.Parse(xml);
+
+        var program = new TestableProgram();  // CaseSensitive = false
+        program.SortXmlNodes(doc.Root);
+
+        // With case-insensitive sort, "alpha" must come first (before "Beta" and "Zebra")
+        var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+        Assert.Equal(3, names.Count);
+        Assert.Equal("alpha", names[0]);
+    }
+
+    [Fact]
+    public void SortXmlNodes_WithCaseSensitive_SortsUppercaseFirst()
+    {
+        // With CaseSensitive=true the sort uses StringComparison.CurrentCulture,
+        // which is a culture-aware, case-sensitive comparison.
+        // In most cultures, 'A' collates before 'b', so "Alpha" should appear before "beta".
+        var xml = @"<root><beta /><Alpha /><zebra /></root>";
+        var doc = XDocument.Parse(xml);
+
+        var program = new TestableProgram { CaseSensitive = true };
+        program.SortXmlNodes(doc.Root);
+
+        // Verify sorted order is applied and "Alpha" appears before "beta"
+        var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+        Assert.Equal(3, names.Count);
+        var alphaIndex = names.IndexOf("Alpha");
+        var betaIndex = names.IndexOf("beta");
+        Assert.True(alphaIndex < betaIndex);
+    }
+
+    // -------------------------------------------------------------------------
+    // Duplicate detection tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void DetectAndHandleDuplicates_NoDuplicates_LeavesListUnchanged()
+    {
+        var xml = @"<root><a /><b /><c /></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram();
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(3, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithDuplicates_EmitsWarningButKeepsByDefault()
+    {
+        var xml = @"<root><a /><b /><a /></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = false };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        // Default: warn but do NOT remove
+        Assert.Equal(3, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithRemoveDupes_RemovesDuplicates()
+    {
+        var xml = @"<root><a /><b /><a /></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        // Should keep only one <a>
+        Assert.Equal(2, elements.Count);
+        Assert.Equal(1, elements.Count(e => e.Name.LocalName == "a"));
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesPropertyGroup()
+    {
+        var xml = @"<Project><PropertyGroup><Foo /></PropertyGroup><PropertyGroup><Bar /></PropertyGroup></Project>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        // PropertyGroup must never be removed
+        Assert.Equal(2, elements.Count(e => e.Name.LocalName == "PropertyGroup"));
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_WithRemoveDupes_NeverRemovesItemGroup()
+    {
+        var xml = @"<Project><ItemGroup><Foo /></ItemGroup><ItemGroup><Bar /></ItemGroup></Project>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        // ItemGroup must never be removed
+        Assert.Equal(2, elements.Count(e => e.Name.LocalName == "ItemGroup"));
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_DuplicateWithSameAttributes_DetectedCaseInsensitive()
+    {
+        // <Foo a="1" /> and <foo A="1" /> are duplicates when case-insensitive
+        var xml = @"<root><Foo a=""1"" /><foo A=""1"" /></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCultureIgnoreCase, elements);
+
+        Assert.Equal(1, elements.Count);
+    }
+
+    [Fact]
+    public void DetectAndHandleDuplicates_DuplicateWithSameAttributes_NotDetectedCaseSensitive()
+    {
+        // <Foo a="1" /> and <foo a="1" /> are NOT duplicates when case-sensitive
+        var xml = @"<root><Foo a=""1"" /><foo a=""1"" /></root>";
+        var doc = XDocument.Parse(xml);
+        var elements = doc.Root!.Elements().ToList();
+
+        var program = new TestableProgram { RemoveDupes = true };
+        program.DetectAndHandleDuplicates(doc.Root!, StringComparison.CurrentCulture, elements);
+
+        Assert.Equal(2, elements.Count);
+    }
+
+    [Fact]
+    public void SortXmlNodes_WithRemoveDupes_RemovesDuplicatesFromOutput()
+    {
+        // Arrange
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var testFile = Path.Combine(tempDir, "test.xml");
+            File.WriteAllText(testFile, "<root><b /><a /><b /></root>");
+
+            var program = new TestableProgram { NoBackup = true, RemoveDupes = true };
+            var result = program.ProcessXmlFile(testFile);
+
+            Assert.True(result);
+            var doc = XDocument.Load(testFile);
+            var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+            // Only one <b> should remain
+            Assert.Equal(1, names.Count(n => n == "b"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 }
 
