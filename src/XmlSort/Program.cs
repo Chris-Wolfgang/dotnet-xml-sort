@@ -282,7 +282,10 @@ public class Program
     }
 
     /// <summary>
-    /// Detects duplicate sibling elements (same name and attributes) under <paramref name="parent"/>.
+    /// Detects duplicate sibling elements under <paramref name="parent"/>. Two elements are
+    /// considered duplicates when their full subtree matches: the element name, all attribute
+    /// names and values, and all descendant element names, attribute names, values, and text
+    /// content must be identical (using the current case-sensitivity setting).
     /// Emits a yellow warning for each duplicate group. If RemoveDupes is set, removes all but the
     /// first occurrence, unless the element name is PropertyGroup or ItemGroup.
     /// </summary>
@@ -323,16 +326,46 @@ public class Program
     private static string GetElementKey(XElement element, StringComparison comparison)
     {
         var comparer = GetComparer(comparison);
+        var sb = new System.Text.StringBuilder();
+        BuildElementKey(element, comparer, sb);
+        return sb.ToString();
+    }
 
-        // Use \x00 (between attrs) and \x01 (between name and value) as separators.
-        // These characters are invalid in XML 1.0 names and values, so they cannot
-        // appear in real attribute names or values, making the key collision-free.
-        var name = element.Name.LocalName;
-        var attrs = string.Join("\x00", element.Attributes()
-            .OrderBy(a => a.Name.LocalName, comparer)
-            .Select(a => $"{a.Name.LocalName}\x01{a.Value}"));
+    /// <summary>
+    /// Recursively builds a canonical key for <paramref name="element"/> that encodes the
+    /// element name, all attribute names and values, text content, and all descendants.
+    /// Control characters \x00-\x07 are used as structural delimiters; they are invalid in
+    /// XML 1.0 names, attribute values, and text content so they cannot cause collisions:
+    ///   \x00 after element name; \x01 between attr name and value; \x02 after attr value;
+    ///   \x03 end-of-attributes; \x04 before child; \x05 after child;
+    ///   \x06 before text node; \x07 after text node.
+    /// </summary>
+    private static void BuildElementKey(XElement element, StringComparer comparer, System.Text.StringBuilder sb)
+    {
+        // Element name
+        sb.Append(element.Name.LocalName).Append('\x00');
 
-        return $"{name}\x00{attrs}";
+        // Attributes sorted by name for a stable, order-independent signature
+        foreach (var attr in element.Attributes().OrderBy(a => a.Name.LocalName, comparer))
+        {
+            sb.Append(attr.Name.LocalName).Append('\x01').Append(attr.Value).Append('\x02');
+        }
+        sb.Append('\x03'); // end-of-attributes marker
+
+        // Recurse into child elements (in document order)
+        foreach (var child in element.Elements())
+        {
+            sb.Append('\x04');
+            BuildElementKey(child, comparer, sb);
+            sb.Append('\x05');
+        }
+
+        // Direct text nodes of this element only (element.Nodes() returns immediate children,
+        // not all descendants, so descendant text is captured during recursion above).
+        foreach (var text in element.Nodes().OfType<XText>())
+        {
+            sb.Append('\x06').Append(text.Value).Append('\x07');
+        }
     }
 
     private static StringComparer GetComparer(StringComparison comparison) =>
